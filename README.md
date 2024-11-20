@@ -52,7 +52,8 @@
 
 **Пример запуска оболочки:** 
 ```
-shell> ls -la Execution time: 0.003 seconds shell> cd /home shell> exit
+shell> ls -la Execution time: 0.003 seconds
+shell> cd /home shell> exit
 ```
 ### Вывод  
 
