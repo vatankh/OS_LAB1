@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""
+UART Packet Tester for ATmega328P (fixed)
+
+- Clears the buffer before each transmission
+- Displays the calculated CRC for a valid packet
+- Waits for exactly as many bytes as expected in response
+"""
+
+import sys  # for reading command-line arguments
+import time  # imported but not used in current code
+import serial  # pyserial library for serial communication
+
+# SYNC byte constant used for packet framing
+SYNC = 0x5A
+
+def crc8(data: bytes) -> int:
+    """Calculate CRC 8 checksum using polynomial 0x07 and initial value 0x00."""
+    crc = 0
+    for b in data:
+        crc ^= b  # XOR each byte
+        for _ in range(8):  # Process 8 bits
+            if crc & 0x80:  # If MSB is set
+                crc = ((crc << 1) ^ 0x07) & 0xFF  # XOR with polynomial after shifting
+            else:
+                crc = (crc << 1) & 0xFF  # Just shift if MSB not set
+    return crc
+
+def build_packet(payload: bytes,
+                 bad_sync: bool = False,
+                 bad_len: bool = False,
+                 incomplete: bool = False) -> bytes:
+    """
+    Build UART packet: [SYNC][LEN][DATA...][CRC]
+    Parameters allow simulation of specific protocol errors.
+    """
+    length = len(payload)
+    hdr = bytearray()
+    
+    # Insert SYNC byte, unless simulating bad sync
+    hdr.append(SYNC if not bad_sync else 0x00)
+    
+    # Insert length byte, unless simulating bad length
+    hdr.append((length if not bad_len else length + 1) & 0xFF)
+    
+    pkt = hdr + payload  # Combine header and payload
+
+    # If not simulating incomplete packet, calculate and append CRC
+    if not incomplete:
+        chk = crc8(bytes([hdr[1]]) + payload)  # CRC over [LEN]+DATA
+        pkt.append(chk)
+
+    return bytes(pkt)
+
+def send_and_recv(ser: serial.Serial, pkt: bytes, expected_len: int):
+    """
+    Send packet and wait for response.
+    Clears input buffer before sending.
+    """
+    print(f"\nSending: {pkt.hex(' ')}  (expecting {expected_len} bytes in response)")
+    ser.reset_input_buffer()  # Flush any existing data in input buffer
+    ser.write(pkt)  # Send the packet
+    resp = ser.read(expected_len)  # Read exactly expected_len bytes
+
+    if resp:
+        print("Response: ", resp.hex(' '))
+    else:
+        print("No response (no echo received)")
+
+def main():
+    """Main loop: user interaction and packet sending."""
+    
+    # Expect exactly 1 command-line argument: COM port name
+    if len(sys.argv) != 2:
+        print("Usage: python client.py <COM-port>")
+        sys.exit(1)
+
+    port = sys.argv[1]
+
+    # Initialize serial port connection
+    ser = serial.Serial(
+        port,
+        baudrate=57600,
+        parity=serial.PARITY_EVEN,
+        stopbits=serial.STOPBITS_ONE,
+        timeout=0.5  # Half-second read timeout
+    )
+
+    try:
+        # Infinite loop for user interaction
+        while True:
+            # Display menu
+            print("\nSelect a case:")
+            print(" 1) Valid packet")
+            print(" 2) Incorrect length")
+            print(" 3) Missing SYNC")
+            print(" 4) Incomplete packet (not enough bytes)")
+            print(" 0) Exit")
+            
+            choice = input("> ").strip()
+
+            if choice == "0":
+                break  # Exit program
+
+            # Define a fixed test payload
+            payload = bytes([0x10, 0x20])
+
+            if choice == "1":
+                # Build a correct packet
+                pkt = build_packet(payload)
+
+                # Calculate CRC separately for display
+                length = pkt[1]
+                data = pkt[2:-1]
+                calc_crc = crc8(bytes([length]) + data)
+                print(f"→ CRC calculated: 0x{calc_crc:02X}")
+                expected = len(pkt)
+
+            elif choice == "2":
+                # Simulate incorrect length
+                pkt = build_packet(payload, bad_len=True)
+                expected = 0  # No echo expected
+
+            elif choice == "3":
+                # Simulate missing SYNC byte
+                pkt = build_packet(payload, bad_sync=True)
+                expected = 0
+
+            elif choice == "4":
+                # Simulate incomplete packet (CRC missing)
+                pkt = build_packet(payload, incomplete=True)
+                expected = 0
+
+            else:
+                print("Invalid selection, please try again.")
+                continue  # Prompt again if invalid input
+
+            # Send packet and handle response
+            send_and_recv(ser, pkt, expected)
+
+    finally:
+        ser.close()  # Ensure serial port is always closed on exit
+
+# Entry point: start program if script run directly
+if __name__ == "__main__":
+    main()
