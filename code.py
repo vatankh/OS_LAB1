@@ -2,9 +2,9 @@
 """
 UART Packet Tester for ATmega328P (fixed)
 
-- Сбрасывает буфер перед каждой отправкой
-- Выводит рассчитанный CRC для корректного пакета
-- Ждёт ровно столько байт, сколько должно прийти в ответ
+- Clears the buffer before each transmission
+- Displays the calculated CRC for a valid packet
+- Waits for exactly as many bytes as expected in response
 """
 
 import sys
@@ -30,9 +30,9 @@ def build_packet(payload: bytes,
                  bad_len: bool = False,
                  incomplete: bool = False) -> bytes:
     """
-    Собирает пакет:
+    Builds packet:
       [SYNC][LEN][DATA...][CRC]
-    Параметры bad_* позволяют симулировать ошибки.
+    bad_* parameters simulate errors.
     """
     length = len(payload)
     hdr = bytearray()
@@ -40,27 +40,27 @@ def build_packet(payload: bytes,
     hdr.append((length if not bad_len else length + 1) & 0xFF)
     pkt = hdr + payload
     if not incomplete:
-        # CRC считается по полю LENGTH + DATA
+        # CRC is calculated over LENGTH + DATA
         chk = crc8(bytes([hdr[1]]) + payload)
         pkt.append(chk)
     return bytes(pkt)
 
 def send_and_recv(ser: serial.Serial, pkt: bytes, expected_len: int):
     """
-    Сбрасывает входной буфер, шлёт pkt и ждёт ровно expected_len байт.
+    Clears input buffer, sends pkt and waits for exactly expected_len bytes.
     """
-    print(f"\nОтправляю: {pkt.hex(' ')}  (ожидаю {expected_len} байт ответа)")
+    print(f"\nSending: {pkt.hex(' ')}  (expecting {expected_len} bytes in response)")
     ser.reset_input_buffer()
     ser.write(pkt)
     resp = ser.read(expected_len)
     if resp:
-        print("Ответ:  ", resp.hex(' '))
+        print("Response: ", resp.hex(' '))
     else:
-        print("Нет ответа (эхо не пришло)")
+        print("No response (no echo received)")
 
 def main():
     if len(sys.argv) != 2:
-        print("Использование: python client.py <COM-порт>")
+        print("Usage: python client.py <COM-port>")
         sys.exit(1)
 
     port = sys.argv[1]
@@ -74,32 +74,32 @@ def main():
 
     try:
         while True:
-            print("\nВыберите кейс:")
-            print(" 1) Корректный пакет")
-            print(" 2) Неправильная длина")
-            print(" 3) Отсутствие SYNC")
-            print(" 4) Недостаточно байт (incomplete)")
-            print(" 0) Выход")
+            print("\nSelect a case:")
+            print(" 1) Valid packet")
+            print(" 2) Incorrect length")
+            print(" 3) Missing SYNC")
+            print(" 4) Incomplete packet (not enough bytes)")
+            print(" 0) Exit")
             choice = input("> ").strip()
 
             if choice == "0":
                 break
 
-            # пример полезной нагрузки — два байта
+            # example payload — two bytes
             payload = bytes([0x10, 0x20])
 
             if choice == "1":
                 pkt = build_packet(payload)
-                # считаем CRC отдельно и выводим
+                # calculate and display CRC separately
                 length = pkt[1]
                 data = pkt[2:-1]
                 calc_crc = crc8(bytes([length]) + data)
-                print(f"→ CRC рассчитан: 0x{calc_crc:02X}")
+                print(f"→ CRC calculated: 0x{calc_crc:02X}")
                 expected = len(pkt)
 
             elif choice == "2":
                 pkt = build_packet(payload, bad_len=True)
-                expected = 0   # эха не будет
+                expected = 0   # no echo expected
 
             elif choice == "3":
                 pkt = build_packet(payload, bad_sync=True)
@@ -110,7 +110,7 @@ def main():
                 expected = 0
 
             else:
-                print("Неверный выбор, повторите.")
+                print("Invalid selection, please try again.")
                 continue
 
             send_and_recv(ser, pkt, expected)
